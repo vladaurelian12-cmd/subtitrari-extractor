@@ -2,13 +2,14 @@ import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {timingSafeEqual} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
+import {extractIndexed} from './matroska.mjs';
 
 export function mediaUrl(value){
  const u=new URL(value);
  if(u.protocol!=='https:'||u.username||u.password||u.port||!/(^|\.)(real-debrid\.com|rdcontent\.net|torbox\.app)$/.test(u.hostname))throw Error('Invalid media host');
  return u.href;
 }
-export function createExtractor({secret,runner=runFfmpeg,maxJobs=8}={}){
+export function createExtractor({secret,runner=runExtraction,maxJobs=8}={}){
  if(typeof secret!=='string'||secret.length<32)throw Error('EXTRACTION_SERVICE_SECRET must contain at least 32 characters');
  const jobs=new Map();let running=0;
  const pump=()=>{if(running)return;const job=[...jobs.values()].find(j=>j.status==='queued');if(!job)return;running++;job.status='extracting';
@@ -29,10 +30,14 @@ export function createExtractor({secret,runner=runFfmpeg,maxJobs=8}={}){
    for(const [id,job] of jobs)if(job.status==='error'||['ready'].includes(job.status)&&Date.now()-job.updated>15*60*1000)jobs.delete(id);
    let job=jobs.get(identity);
    if(!job){if(jobs.size>=maxJobs){respond(res,429,{error:'Extractor ocupat. Încearcă din nou.'});return;}job={url,stream:data.stream,duration:data.duration,status:'queued',progress:0,updated:Date.now()};jobs.set(identity,job);pump();}
-   respond(res,job.status==='ready'?200:202,{status:job.status,progress:job.progress,...(job.text?{text:job.text}:{}),...(job.error?{error:job.error}:{})});
+   respond(res,job.status==='ready'?200:202,{status:job.status,progress:job.progress,...(job.method?{method:job.method}:{}),...(job.bytesRead?{bytesRead:job.bytesRead,requests:job.requests}:{}),...(job.text?{text:job.text}:{}),...(job.error?{error:job.error}:{})});
   }catch{respond(res,400,{error:'Invalid extraction request'});}
  });
  return server;
+}
+export async function runExtraction(job,onProgress){
+ try{job.method='indexed-mkv';const result=await extractIndexed(job,onProgress);job.method=result.method;job.bytesRead=result.bytesRead;job.requests=result.requests;job.elapsedMs=result.elapsedMs;return result.text;}
+ catch{job.method='ffmpeg';onProgress(0);return await runFfmpeg(job,onProgress);}
 }
 export function runFfmpeg(job,onProgress){return new Promise((resolve,reject)=>{
  const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-copyts','-protocol_whitelist','https,tls,tcp,crypto','-rw_timeout','30000000','-i',job.url,'-map',job.stream,'-c:s','srt','-avoid_negative_ts','disabled','-f','srt','-progress','pipe:2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
