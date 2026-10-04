@@ -35,7 +35,7 @@ export function createExtractor({secret,runner=runFfmpeg,maxJobs=8}={}){
  return server;
 }
 export function runFfmpeg(job,onProgress){return new Promise((resolve,reject)=>{
- const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-protocol_whitelist','https,tls,tcp,crypto','-rw_timeout','30000000','-i',job.url,'-map',job.stream,'-c:s','srt','-f','srt','-progress','pipe:2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+ const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-copyts','-protocol_whitelist','https,tls,tcp,crypto','-rw_timeout','30000000','-i',job.url,'-map',job.stream,'-c:s','srt','-avoid_negative_ts','disabled','-f','srt','-progress','pipe:2','pipe:1'],{windowsHide:true,stdio:['ignore','pipe','pipe']});
  const chunks=[];let size=0,progress='';const timer=setTimeout(()=>child.kill(),20*60*1000);
  child.stdout.on('data',chunk=>{size+=chunk.length;if(size>750000)child.kill();else chunks.push(chunk);});
  child.stderr.on('data',chunk=>{progress+=chunk.toString();const lines=progress.split('\n');progress=lines.pop().slice(-1024);for(const line of lines){const m=line.match(/^out_time_us=(\d+)$/);if(m)onProgress(Number(m[1])/1000000);}});
